@@ -5,6 +5,14 @@ final class Game {
 		let seeker: UUID
 	}
 	
+	struct RestartRequest: Decodable {
+		let restart: Bool
+	}
+	
+	struct RestartResponse: Encodable {
+		let restart = true
+	}
+	
 	let clients: Clients<User>
 	var seeker: User?
 	
@@ -23,13 +31,13 @@ final class Game {
 		try sendStart()
 	}
 	
-	func sendClients() {
-		let clients = self.clients.active
+	func sendUsers() {
+		let users = clients.active
 		
-		for client in clients {
+		for user in users {
 			do {
-				try client.socket.send(User.Users(
-					clients.compactMap { $0.id == client.id ? nil : $0.data }
+				try user.socket.send(User.Users(
+					users.compactMap { $0.id == user.id ? nil : $0.data }
 				))
 			} catch {
 				print(error)
@@ -44,8 +52,8 @@ final class Game {
 		
 		let data = try WebSocket.data(Start(seeker: seeker))
 		
-		for client in clients.active {
-			client.socket.send(data)
+		for user in clients.active {
+			user.socket.send(data)
 		}
 	}
 	
@@ -61,6 +69,23 @@ final class Game {
 		
 		user.found = true
 		try user.socket.send(User.Found())
+	}
+	
+	func restart() throws {
+		let data = try WebSocket.data(RestartResponse())
+		let users = clients.active
+		
+		for user in users {
+			user.ready = false
+			user.pinged = false
+			user.found = false
+		}
+		
+		for user in users {
+			user.socket.send(data)
+		}
+		
+		seeker = nil
 	}
 	
 	func connect(_ socket: WebSocket) {
@@ -96,11 +121,17 @@ final class Game {
 				} catch {
 					print(error)
 				}
+			} else if (try? decoder.decode(RestartRequest.self, from: data)) != nil {
+				do {
+					try self.restart()
+				} catch {
+					print(error)
+				}
 			} else {
 				return
 			}
 			
-			self.sendClients()
+			self.sendUsers()
 		}
 		
 		socket.onClose.whenSuccess { [weak self] in
@@ -111,7 +142,7 @@ final class Game {
 			}
 			
 			self.clients.remove(user)
-			self.sendClients()
+			self.sendUsers()
 		}
 	}
 }
