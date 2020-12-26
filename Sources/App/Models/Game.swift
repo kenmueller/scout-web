@@ -16,44 +16,51 @@ final class Game {
 		clients.active.allSatisfy { $0.ready }
 	}
 	
-	func startIfReady() {
+	func startIfReady() throws {
 		guard seeker == nil && ready else { return }
 		
 		seeker = clients.random
-		sendStart()
+		try sendStart()
 	}
 	
 	func sendClients() {
 		let clients = self.clients.active
 		
 		for client in clients {
-			let users = User.Users(
-				clients.compactMap { $0.id == client.id ? nil : $0.data }
-			)
-			
-			guard let data = try? encoder.encode(users) else {
-				print("Unable to get users")
-				continue
+			do {
+				try client.socket.send(User.Users(
+					clients.compactMap { $0.id == client.id ? nil : $0.data }
+				))
+			} catch {
+				print(error)
 			}
-			
-			client.socket.send([UInt8](data))
 		}
 	}
 	
-	func sendStart() {
-		guard
-			let seeker = seeker?.id,
-			let start = try? encoder.encode(Start(seeker: seeker))
-		else {
-			print("Unable to get start data")
+	func sendStart() throws {
+		guard let seeker = seeker?.id else {
 			return
 		}
 		
-		let data = [UInt8](start)
+		let data = try WebSocket.data(Start(seeker: seeker))
 		
 		for client in clients.active {
 			client.socket.send(data)
 		}
+	}
+	
+	func ping(_ id: UUID) throws {
+		guard let user = clients[id], !user.pinged else { return }
+		
+		user.pinged = true
+		try user.socket.send(User.Pinged())
+	}
+	
+	func find(_ id: UUID) throws {
+		guard let user = clients[id], !user.found else { return }
+		
+		user.found = true
+		try user.socket.send(User.Found())
 	}
 	
 	func connect(_ socket: WebSocket) {
@@ -71,7 +78,24 @@ final class Game {
 				guard let user = user else { return }
 				
 				user.ready = ready
-				self.startIfReady()
+				
+				do {
+					try self.startIfReady()
+				} catch {
+					print(error)
+				}
+			} else if let id = try? decoder.decode(User.Ping.self, from: data).id {
+				do {
+					try self.ping(id)
+				} catch {
+					print(error)
+				}
+			} else if let id = try? decoder.decode(User.Find.self, from: data).id {
+				do {
+					try self.find(id)
+				} catch {
+					print(error)
+				}
 			} else {
 				return
 			}
@@ -81,6 +105,10 @@ final class Game {
 		
 		socket.onClose.whenSuccess { [weak self] in
 			guard let self = self, let user = user else { return }
+			
+			if user === self.seeker {
+				self.seeker = nil
+			}
 			
 			self.clients.remove(user)
 			self.sendClients()

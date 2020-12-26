@@ -22,15 +22,15 @@ final class Clients<Value: Client> {
 		active.randomElement()
 	}
 	
+	subscript(_ id: UUID) -> Value? {
+		clients[id]
+	}
+	
 	func add(_ client: Value) {
 		clients[client.id] = client
 	}
 	
 	func remove(_ client: Value) {
 		clients[client.id] = nil
-	}
-	
-	func find(_ id: UUID) -> Value? {
-		clients[id]
 	}
 }
