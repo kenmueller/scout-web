@@ -1,9 +1,6 @@
 import Vapor
+import Socket
 
 public func configure(_ app: Application) throws {
-	let game = Game(eventLoop: app.eventLoopGroup.next())
-	
-	app.webSocket { _, socket in
-		game.connect(socket)
-	}
+	app.webSocket(onUpgrade: SocketRoom<User>().register)
 }
